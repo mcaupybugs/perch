@@ -2,14 +2,15 @@
 
 A pinboard for AI responses that lives in your notch.
 
-When Copilot, Claude or ChatGPT gives you a table you want to work through row by row, it scrolls out of view as soon as the chat moves on. Perch keeps it in view: copy the response, press a shortcut, and it's saved in the notch. Open it as a floating card next to the chat and review it one row at a time.
+When Copilot, Claude or ChatGPT gives you a table you want to work through row by row, it scrolls out of view as soon as the chat moves on. Perch keeps it in view: select the response, press one shortcut, and it's copied and saved in the notch. Open it as a floating card next to the chat and review it one row at a time.
 
 Works on macOS (in the notch, or at the top centre of screens without one) and Windows (at the top of the screen).
 
 ## Features
 
 **Saving**
-- Press <kbd>⌘⌃V</kbd> from any app to save what's on the clipboard, or <kbd>⌘V</kbd> while the Perch panel is open.
+- Select text in any app and press <kbd>⌘⌃V</kbd>: Perch copies it and saves it in one go. With nothing selected, it saves what's already on the clipboard. You can also press <kbd>⌘V</kbd> while the Perch panel is open.
+- On macOS, copying for you needs a one-time permission: **System Settings → Privacy & Security → Accessibility → Perch**. Perch asks the first time; until it's allowed, the shortcut saves the clipboard instead.
 - Both the rich (HTML) and plain-text versions are kept, so formatting survives.
 - Colours from the source app are removed so everything matches Perch's theme; indentation and bold/italic are kept.
 - Tables are recognised from:
@@ -45,7 +46,7 @@ A small bird that lives in the island. Its eye follows your cursor. It waves whe
 
 | Shortcut | Where | What it does |
 | --- | --- | --- |
-| <kbd>⌘⌃V</kbd> (Windows: <kbd>Ctrl+Alt+V</kbd>) | Anywhere | Save the clipboard to Perch |
+| <kbd>⌘⌃V</kbd> (Windows: <kbd>Ctrl+Alt+V</kbd>) | Anywhere | Copy the selection and save it (or save the clipboard if nothing is selected) |
 | <kbd>⌘V</kbd> (Windows: <kbd>Ctrl+V</kbd>) | Panel open | Save the clipboard to Perch |
 | <kbd>⌘⌃T</kbd> (Windows: <kbd>Ctrl+Alt+T</kbd>) | Anywhere | Bring back see-through cards |
 | <kbd>←</kbd> / <kbd>→</kbd> | Compact card | Previous / next row |

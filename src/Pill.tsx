@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { CSSProperties, useCallback, useEffect, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import {
@@ -23,9 +23,27 @@ import {
 } from "./api";
 import Bird, { Mood } from "./Bird";
 
-const COLLAPSED = { w: 300, h: 34 };
 // While open, the island grows downward so Pip sits in the notch at full size.
 const PEEK = { w: 300, h: 112 };
+const OPEN_BAR_H = 34;
+
+/**
+ * How the collapsed pill sits at the top of the screen:
+ * - notch: a black bar the camera notch hides behind (MacBooks with a notch)
+ * - menubar: no taller than the macOS menu bar, so it never covers tabs below it
+ * - edge: a thin click-through line (Windows), opened only by resting the cursor on it
+ */
+type Layout = { mode: "notch" | "menubar" | "edge"; w: number; h: number };
+const NOTCH_LAYOUT: Layout = { mode: "notch", w: 300, h: 34 };
+const EDGE_LAYOUT: Layout = { mode: "edge", w: 150, h: 6 };
+// On the edge line the cursor has to rest a moment, so clicking a tab underneath never opens Perch.
+const EDGE_DWELL_MS = 280;
+
+function layoutFor(screen: { notch: boolean; menu_bar: number }): Layout {
+  if (screen.notch) return NOTCH_LAYOUT;
+  if (screen.menu_bar > 0) return { mode: "menubar", w: 240, h: Math.round(screen.menu_bar) };
+  return EDGE_LAYOUT;
+}
 const ISLAND_MS = 320; // matches the island's CSS height transition
 const HOVER_POLL_MS = 80;
 const LEAVE_DELAY_MS = 250;
@@ -33,6 +51,7 @@ const EXPANDED = { w: 400, h: 500 };
 const SLEEP_AFTER_MS = 90_000;
 const CATCH_MS = 1400;
 const HELLO_MS = 2100;
+const PERMISSION_NOTICE_MS = 6000;
 const isMac = navigator.userAgent.includes("Mac");
 const SHORTCUT = isMac ? "⌘⌃V" : "Ctrl+Alt+V";
 
@@ -59,6 +78,9 @@ export default function Pill() {
   const [hovered, setHovered] = useState(false);
   // Set when the slim bar is clicked before hover opened it: the click opens the island first.
   const [clickedOpen, setClickedOpen] = useState(false);
+  // Shown in the island when macOS hasn't yet allowed Perch to copy for the user.
+  const [needsPermission, setNeedsPermission] = useState(false);
+  const [layout, setLayout] = useState<Layout>(isMac ? NOTCH_LAYOUT : EDGE_LAYOUT);
 
   const refresh = useCallback(() => listItems().then(setItems), []);
   const wake = () => setLastActive(Date.now());
@@ -71,10 +93,17 @@ export default function Pill() {
 
   useEffect(() => {
     refresh();
+    invoke<{ notch: boolean; menu_bar: number }>("screen_info")
+      .then((screen) => setLayout(layoutFor(screen)))
+      .catch(() => {});
     const hello = setTimeout(() => setMood((m) => (m === "hello" ? "idle" : m)), HELLO_MS);
     const unlisten = [
       listen("items-changed", refresh),
       listen("item-saved", catchIt),
+      listen("copy-permission-needed", () => {
+        setNeedsPermission(true);
+        setTimeout(() => setNeedsPermission(false), PERMISSION_NOTICE_MS);
+      }),
       win.onFocusChanged(({ payload: focused }) => {
         if (!focused) setExpanded(false);
       }),
@@ -99,13 +128,17 @@ export default function Pill() {
     if (expanded) return;
     let alive = true;
     let wasInside = false;
+    let insideSince = 0;
     let leaveTimer: number | undefined;
     const t = setInterval(async () => {
       const pos = await invoke<[number, number] | null>("cursor_in_window").catch(() => null);
       const rect = document.querySelector(".island")?.getBoundingClientRect();
       if (!alive || !pos || !rect) return;
       const inside = pos[0] >= rect.left && pos[0] <= rect.right && pos[1] >= -4 && pos[1] <= rect.bottom;
-      if (inside) {
+      if (!inside) insideSince = 0;
+      else if (!insideSince) insideSince = Date.now();
+      const dwelled = layout.mode !== "edge" || wasInside || Date.now() - insideSince >= EDGE_DWELL_MS;
+      if (inside && dwelled) {
         clearTimeout(leaveTimer);
         leaveTimer = undefined;
         if (!wasInside) {
@@ -114,7 +147,7 @@ export default function Pill() {
           wake();
           setMood((m) => (m === "sleep" ? "idle" : m));
         }
-      } else if (wasInside && leaveTimer === undefined) {
+      } else if (!inside && wasInside && leaveTimer === undefined) {
         // Only on the way out — a short grace period so brushing the edge doesn't flicker.
         leaveTimer = window.setTimeout(() => {
           wasInside = false;
@@ -129,10 +162,11 @@ export default function Pill() {
       clearInterval(t);
       clearTimeout(leaveTimer);
     };
-  }, [expanded]);
+  }, [expanded, layout.mode]);
 
   // The island opens on hover, on a click, at launch and while catching a note.
-  const peek = !expanded && (hovered || clickedOpen || mood === "hello" || mood === "catch");
+  const peek =
+    !expanded && (hovered || clickedOpen || needsPermission || mood === "hello" || mood === "catch");
   useEffect(() => {
     if (expanded) return;
     if (peek) {
@@ -140,9 +174,14 @@ export default function Pill() {
       return;
     }
     // Let the island finish shrinking before the window does, or the animation gets clipped.
-    const t = setTimeout(() => placeAtTop(COLLAPSED), ISLAND_MS);
+    const t = setTimeout(() => placeAtTop(layout), ISLAND_MS);
     return () => clearTimeout(t);
-  }, [peek, expanded]);
+  }, [peek, expanded, layout]);
+
+  // The collapsed edge line lets clicks fall through to whatever is underneath it.
+  useEffect(() => {
+    win.setIgnoreCursorEvents(layout.mode === "edge" && !peek && !expanded).catch(() => {});
+  }, [layout.mode, peek, expanded]);
 
   useEffect(() => {
     if (expanded) {
@@ -182,13 +221,16 @@ export default function Pill() {
     return (
       <div className="pill-wrap">
         <div
-          className={`island ${peek ? "open" : ""} ${mood === "catch" ? "bounce" : ""}`}
+          className={`island island-${layout.mode} ${peek ? "open" : ""} ${mood === "catch" ? "bounce" : ""}`}
+          style={{ "--bar-h": `${peek ? OPEN_BAR_H : layout.h}px`, width: peek ? PEEK.w : layout.w } as CSSProperties}
           onClick={() => (peek ? setExpanded(true) : setClickedOpen(true))}
         >
           <div className="island-bar">
-            {!peek && <Bird mood={mood} size={28} lookAt />}
+            {!peek && layout.mode !== "edge" && (
+              <Bird mood={mood} size={layout.mode === "menubar" ? Math.min(20, layout.h - 4) : 28} lookAt />
+            )}
             <span className="pill-gap" />
-            <span className="pill-count">{items.length || ""}</span>
+            {layout.mode !== "edge" && <span className="pill-count">{items.length || ""}</span>}
           </div>
           {peek && (
             <div className="island-body">
@@ -201,11 +243,17 @@ export default function Pill() {
                     ? "Hi, I'm Pip"
                     : mood === "catch"
                       ? "Got it!"
-                      : items.length
-                        ? `${items.length} saved`
-                        : "Nothing perched yet"}
+                      : needsPermission
+                        ? "Let me copy for you"
+                        : items.length
+                          ? `${items.length} saved`
+                          : "Nothing perched yet"}
                 </div>
-                <div className="muted">Click to open · {SHORTCUT} to save</div>
+                <div className="muted">
+                  {needsPermission
+                    ? "Allow Perch in Privacy & Security → Accessibility"
+                    : `Click to open · select + ${SHORTCUT} to save`}
+                </div>
               </div>
             </div>
           )}
@@ -252,9 +300,9 @@ export default function Pill() {
             <Bird mood="sleep" size={92} />
             <div>Nothing perched yet.</div>
             <div>
-              Copy a response, then press <kbd>{SHORTCUT}</kbd> anywhere
+              Select a response and press <kbd>{SHORTCUT}</kbd> anywhere.
               <br />
-              or <kbd>{isMac ? "⌘V" : "Ctrl+V"}</kbd> while this panel is open.
+              Perch copies and saves it in one go.
             </div>
           </li>
         )}

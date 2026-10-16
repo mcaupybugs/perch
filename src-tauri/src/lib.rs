@@ -1,12 +1,19 @@
 use serde::{Deserialize, Serialize};
+mod capture;
+
 use std::path::PathBuf;
 use std::sync::Mutex;
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use tauri::{AppHandle, Emitter, Manager, State};
 use tauri_plugin_global_shortcut::{Code, Modifiers, Shortcut, ShortcutState};
 
 /// Items older than this are dropped automatically — Perch is a scratchpad, not an archive.
 const TTL_MS: u64 = 24 * 60 * 60 * 1000;
+/// How long to wait for the front app to put the selection on the clipboard after the copy keystroke.
+const COPY_WAIT: Duration = Duration::from_millis(450);
+/// The Accessibility prompt is shown at most once per launch.
+static ASKED_PERMISSION: AtomicBool = AtomicBool::new(false);
 
 #[derive(Clone, Serialize, Deserialize)]
 pub struct Item {
@@ -117,6 +124,40 @@ fn read_clipboard() -> Option<(String, Option<String>)> {
     Some((text, html))
 }
 
+/// Copies the selection in the front app, waits for it to reach the clipboard, then saves it.
+/// With nothing selected the clipboard doesn't change, so whatever was already copied is saved.
+fn capture_selection(app: AppHandle) {
+    std::thread::spawn(move || {
+        let before = read_clipboard();
+        match capture::send_copy() {
+            Ok(()) => {
+                let deadline = Instant::now() + COPY_WAIT;
+                while Instant::now() < deadline {
+                    std::thread::sleep(Duration::from_millis(25));
+                    if read_clipboard() != before {
+                        // Let the app finish writing every flavour (HTML lands just after text).
+                        std::thread::sleep(Duration::from_millis(40));
+                        break;
+                    }
+                }
+            }
+            Err(capture::CopyError::NeedsPermission) => {
+                if !ASKED_PERMISSION.swap(true, Ordering::Relaxed) {
+                    capture::request_permission();
+                }
+                let _ = app.emit("copy-permission-needed", ());
+            }
+            Err(capture::CopyError::Failed) => {}
+        }
+        let store = app.state::<Store>();
+        if let Some((text, html)) = read_clipboard() {
+            if let Some(item) = add(&app, &store, text, html) {
+                let _ = app.emit("item-saved", item);
+            }
+        }
+    });
+}
+
 #[tauri::command]
 fn list_items(store: State<Store>) -> Vec<Item> {
     store.prune();
@@ -211,6 +252,88 @@ fn float_over_menu_bar(window: &tauri::WebviewWindow) {
     }
 }
 
+/// What the top of the pill's screen looks like, so the pill can stay out of the way of tabs.
+#[derive(Serialize)]
+struct ScreenInfo {
+    /// The screen has a camera notch the pill can hide around (MacBooks since 2021).
+    notch: bool,
+    /// Height of the macOS menu bar on this screen in points; 0 where there isn't one (Windows).
+    menu_bar: f64,
+}
+
+#[tauri::command]
+fn screen_info(window: tauri::WebviewWindow) -> ScreenInfo {
+    #[cfg(target_os = "macos")]
+    return mac_screen_info(&window);
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = window;
+        ScreenInfo { notch: false, menu_bar: 0.0 }
+    }
+}
+
+#[cfg(target_os = "macos")]
+fn mac_screen_info(window: &tauri::WebviewWindow) -> ScreenInfo {
+    use objc2::encode::{Encode, Encoding};
+    use objc2::runtime::{AnyClass, AnyObject, Bool};
+    use objc2::{msg_send, sel};
+
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct EdgeInsets {
+        top: f64,
+        left: f64,
+        bottom: f64,
+        right: f64,
+    }
+    unsafe impl Encode for EdgeInsets {
+        const ENCODING: Encoding =
+            Encoding::Struct("NSEdgeInsets", &[f64::ENCODING, f64::ENCODING, f64::ENCODING, f64::ENCODING]);
+    }
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct Rect {
+        x: f64,
+        y: f64,
+        width: f64,
+        height: f64,
+    }
+    unsafe impl Encode for Rect {
+        const ENCODING: Encoding = Encoding::Struct(
+            "CGRect",
+            &[
+                Encoding::Struct("CGPoint", &[f64::ENCODING, f64::ENCODING]),
+                Encoding::Struct("CGSize", &[f64::ENCODING, f64::ENCODING]),
+            ],
+        );
+    }
+
+    const FALLBACK: ScreenInfo = ScreenInfo { notch: false, menu_bar: 24.0 };
+    let Ok(ptr) = window.ns_window() else { return FALLBACK };
+    unsafe {
+        let ns_window = &*(ptr as *const AnyObject);
+        let mut screen: *const AnyObject = msg_send![ns_window, screen];
+        if screen.is_null() {
+            let Some(cls) = AnyClass::get(c"NSScreen") else { return FALLBACK };
+            screen = msg_send![cls, mainScreen];
+        }
+        let Some(screen) = screen.as_ref() else { return FALLBACK };
+
+        // safeAreaInsets (macOS 12+) is non-zero at the top only on screens with a notch.
+        let has_insets: Bool = msg_send![screen, respondsToSelector: sel!(safeAreaInsets)];
+        let notch = has_insets.as_bool() && {
+            let insets: EdgeInsets = msg_send![screen, safeAreaInsets];
+            insets.top > 0.0
+        };
+        // The menu bar is the strip between the screen's top and the top of its usable area.
+        let frame: Rect = msg_send![screen, frame];
+        let visible: Rect = msg_send![screen, visibleFrame];
+        let menu_bar = (frame.y + frame.height) - (visible.y + visible.height);
+        ScreenInfo { notch, menu_bar: if menu_bar > 0.0 { menu_bar } else { FALLBACK.menu_bar } }
+    }
+}
+
+/// Copies the current selection and saves it (or saves the clipboard if nothing is selected).
 fn capture_shortcut() -> Shortcut {
     // Cmd+Ctrl+V on macOS, Ctrl+Alt+V elsewhere — avoids "paste as plain text" bindings.
     #[cfg(target_os = "macos")]
@@ -244,12 +367,7 @@ pub fn run() {
                         let _ = app.emit("solid-cards", ());
                         return;
                     }
-                    let store = app.state::<Store>();
-                    if let Some((text, html)) = read_clipboard() {
-                        if let Some(item) = add(app, &store, text, html) {
-                            let _ = app.emit("item-saved", item);
-                        }
-                    }
+                    capture_selection(app.clone());
                 })
                 .build(),
         )
@@ -278,6 +396,7 @@ pub fn run() {
             set_review,
             copy_text,
             cursor_in_window,
+            screen_info,
             quit
         ])
         .run(tauri::generate_context!())
