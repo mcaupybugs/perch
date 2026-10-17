@@ -62,9 +62,9 @@ Copy these into the submission in Partner Center.
 
 ## Submission options → runFullTrust justification
 
-The capability box takes about 500 characters. Paste this (367):
+The capability box takes only about 200 characters. Paste this (160):
 
-> Perch is a desktop utility (Win32, built with Tauri). It needs runFullTrust for: (1) a global shortcut, Ctrl+Alt+V, that saves the user's selected text by sending one Ctrl+C to the foreground app, only when the user presses it; (2) always-on-top windows that keep saved content visible beside other apps. All data stays on the device. No network requests, no sign-in.
+> Needed for a global shortcut (Ctrl+Alt+V) that copies the user's selection when pressed, and always-on-top windows. Data stays on device; no network or sign-in.
 
 ## Submission options → notes for certification
 
