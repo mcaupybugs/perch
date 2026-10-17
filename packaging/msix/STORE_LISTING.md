@@ -60,9 +60,15 @@ Copy these into the submission in Partner Center.
 3. The panel listing saved items with progress bars
 4. Compact mode next to a chat
 
+## Submission options → runFullTrust justification
+
+The capability box takes about 500 characters. Paste this (367):
+
+> Perch is a desktop utility (Win32, built with Tauri). It needs runFullTrust for: (1) a global shortcut, Ctrl+Alt+V, that saves the user's selected text by sending one Ctrl+C to the foreground app, only when the user presses it; (2) always-on-top windows that keep saved content visible beside other apps. All data stays on the device. No network requests, no sign-in.
+
 ## Submission options → notes for certification
 
-Paste into "Notes for certification", and into the justification box for the `runFullTrust` capability:
+Paste into "Notes for certification":
 
 > Perch is a desktop productivity utility built as a full-trust Win32 app (Tauri framework). It needs runFullTrust to work as designed:
 >
