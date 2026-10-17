@@ -3,7 +3,7 @@
 # the Store signs it after certification.
 #
 # Identity comes from the environment (set as GitHub repository variables):
-#   MSIX_IDENTITY_NAME, MSIX_PUBLISHER, MSIX_PUBLISHER_DISPLAY_NAME
+#   MSIX_IDENTITY_NAME, MSIX_PUBLISHER, MSIX_PUBLISHER_DISPLAY_NAME, MSIX_DISPLAY_NAME
 # Without them a placeholder identity is used, which is only good for checking the build.
 
 $ErrorActionPreference = "Stop"
@@ -15,6 +15,8 @@ $version = "$($conf.version).0" # the Store needs four parts, with the last one 
 $identity = if ($env:MSIX_IDENTITY_NAME) { $env:MSIX_IDENTITY_NAME } else { "Perch.PlaceholderIdentity" }
 $publisher = if ($env:MSIX_PUBLISHER) { $env:MSIX_PUBLISHER } else { "CN=PerchPlaceholder" }
 $display = if ($env:MSIX_PUBLISHER_DISPLAY_NAME) { $env:MSIX_PUBLISHER_DISPLAY_NAME } else { "Perch (placeholder)" }
+# The app name reserved in Partner Center; the tile and Start menu still say "Perch".
+$appName = if ($env:MSIX_DISPLAY_NAME) { $env:MSIX_DISPLAY_NAME } else { "Perch" }
 $placeholder = -not $env:MSIX_IDENTITY_NAME
 
 $exe = Get-ChildItem "$root/src-tauri/target/release" -Filter "*.exe" |
@@ -34,6 +36,7 @@ $manifest = (Get-Content "$PSScriptRoot/AppxManifest.xml" -Raw).
   Replace("{{IDENTITY_NAME}}", (& $escape $identity)).
   Replace("{{PUBLISHER}}", (& $escape $publisher)).
   Replace("{{PUBLISHER_DISPLAY_NAME}}", (& $escape $display)).
+  Replace("{{DISPLAY_NAME}}", (& $escape $appName)).
   Replace("{{VERSION}}", $version)
 Set-Content "$layout/AppxManifest.xml" $manifest -Encoding utf8
 
