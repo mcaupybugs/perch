@@ -1,0 +1,86 @@
+<!doctype html>
+<!--
+  Runs Perch's real UI with sample data and Tauri calls mocked, for Store screenshots.
+  ?view=card | compact | panel | island
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  html, body { background: transparent !important; }
+  /* Hold Pip still so the frame is crisp. */
+  .bird-body, .bird-eye, .bird-enter, .panel { animation: none !important; }
+</style>
+</head>
+<body>
+<div id="root"></div>
+<script type="module">
+  import { mockIPC, mockWindows } from "@tauri-apps/api/mocks";
+
+  // Store screenshots are for Windows, so show Windows shortcuts (Ctrl+Alt+V) even when rendered on a Mac.
+  Object.defineProperty(navigator, "userAgent", { get: () => "Mozilla/5.0 (Windows NT 10.0; Win64; x64)" });
+
+  const view = new URLSearchParams(location.search).get("view") ?? "card";
+  mockWindows(view === "panel" || view === "island" ? "pill" : "item-1");
+
+  const minutes = (m) => Date.now() - m * 60_000;
+  const table = [
+    "| Idea | Effort | Impact |",
+    "|---|---|---|",
+    "| Cache the hot endpoints | Low | High |",
+    "| Batch database queries | Medium | High |",
+    "| Move internal calls to gRPC | High | Medium |",
+    "| Serve static assets from a CDN | Low | Medium |",
+    "| Rewrite the API in Rust | Very high | Unclear |",
+  ].join("\n");
+  const item = {
+    id: "1",
+    title: "Table: Idea, Effort, Impact",
+    created_at: minutes(6),
+    text: table,
+    html: null,
+    pinned: false,
+    review: {
+      tables: [{ rows: { 0: { status: "accept", note: "Do this first" }, 1: { status: "accept" }, 2: { status: "unsure" }, 4: { status: "reject" } } }],
+      done: 4,
+      total: 5,
+    },
+  };
+  const items = [
+    item,
+    { ...item, id: "2", title: "Table: Test, Status, Owner", created_at: minutes(42), review: { tables: [], done: 2, total: 7 } },
+    { ...item, id: "3", title: "Refactor plan for the auth module", created_at: minutes(180), pinned: true, review: null, html: "<p>x</p>" },
+    { ...item, id: "4", title: "Questions to ask in the design review", created_at: minutes(300), review: null },
+  ];
+
+  mockIPC((cmd) => {
+    if (cmd === "get_item") return item;
+    if (cmd === "list_items") return items;
+    if (cmd === "screen_info") return { notch: false, menu_bar: 0 };
+    // The island opens while the cursor rests on it.
+    if (cmd === "cursor_in_window") return view === "island" ? [150, 12] : null;
+    return null;
+  });
+
+  await import("/src/main.tsx");
+
+  const wait = (ms) => new Promise((r) => setTimeout(r, ms));
+  const until = async (find) => {
+    for (let i = 0; i < 200; i++) {
+      const found = find();
+      if (found) return found;
+      await wait(50);
+    }
+  };
+  if (view === "compact") (await until(() => document.querySelector('[title^="Compact"]')))?.click();
+  if (view === "panel") {
+    for (let i = 0; i < 5 && !document.querySelector(".panel"); i++) {
+      (await until(() => document.querySelector(".island")))?.click();
+      await wait(150);
+    }
+  }
+  if (view === "island") await until(() => document.querySelector(".island-title")?.textContent.includes("saved"));
+  document.body.dataset.ready = "1";
+</script>
+</body>
+</html>

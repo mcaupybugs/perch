@@ -1,0 +1,150 @@
+<!doctype html>
+<!--
+  Microsoft Store screenshots: a Windows-style desktop with a generic AI chat and Perch's real UI
+  (frame.html) on top. Render at 1920×1080, ?shot=1..4.
+-->
+<html>
+<head>
+<meta charset="utf-8" />
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; width: 1920px; height: 1080px; overflow: hidden; }
+  body {
+    font-family: "Segoe UI Variable", "Segoe UI", -apple-system, BlinkMacSystemFont, sans-serif;
+    color: #e9e9ee;
+    position: relative;
+    background:
+      radial-gradient(ellipse 55% 60% at 72% 58%, rgba(70, 110, 190, 0.55), transparent 70%),
+      radial-gradient(ellipse 45% 50% at 28% 70%, rgba(40, 140, 150, 0.45), transparent 70%),
+      radial-gradient(ellipse 60% 45% at 50% 0%, rgba(120, 90, 200, 0.35), transparent 70%),
+      linear-gradient(160deg, #0b1020, #070912 60%, #05060b);
+  }
+
+  /* --- Generic AI chat window ------------------------------------------------------------ */
+  .chat {
+    position: absolute;
+    background: #1d1f24;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 10px;
+    box-shadow: 0 30px 80px rgba(0, 0, 0, 0.55);
+    overflow: hidden;
+    display: flex;
+    flex-direction: column;
+  }
+  .titlebar { height: 40px; display: flex; align-items: center; padding-left: 16px; font-size: 13px; color: #bfc1c8; background: #191a1f; flex-shrink: 0; }
+  .titlebar .dot { width: 14px; height: 14px; border-radius: 4px; background: linear-gradient(135deg, #8aa2ff, #6ad0c8); margin-right: 10px; }
+  .titlebar .ctl { margin-left: auto; display: flex; }
+  .titlebar .ctl span { width: 46px; height: 40px; display: grid; place-items: center; font-size: 12px; color: #9a9ca4; }
+  .messages { flex: 1; overflow: hidden; padding: 0 56px; display: flex; flex-direction: column; justify-content: flex-end; gap: 20px; padding-bottom: 20px; }
+  .msg { font-size: 15.5px; line-height: 1.6; max-width: 760px; }
+  .msg.user { align-self: flex-end; background: #2c2f37; padding: 10px 16px; border-radius: 18px; }
+  .msg.ai p { margin: 0 0 10px; }
+  .msg table { border-collapse: collapse; margin: 6px 0 12px; font-size: 14.5px; }
+  .msg th, .msg td { border: 1px solid #3a3d46; padding: 7px 14px; text-align: left; }
+  .msg th { background: #262830; }
+  .fade-top { mask-image: linear-gradient(180deg, transparent 0, #000 22%); -webkit-mask-image: linear-gradient(180deg, transparent 0, #000 22%); }
+  .composer { margin: 0 56px 22px; border: 1px solid #3a3d46; border-radius: 22px; padding: 14px 18px; color: #7d808a; font-size: 15px; display: flex; flex-shrink: 0; }
+  .composer .send { margin-left: auto; width: 28px; height: 28px; border-radius: 50%; background: #e9e9ee; }
+  .typing { color: #8d9099; font-size: 15px; }
+  .code { background: #15161a; border: 1px solid #2e3038; border-radius: 10px; padding: 14px 16px; font: 13.5px/1.55 ui-monospace, "Cascadia Code", Consolas, monospace; color: #c9cbd3; margin: 6px 0 12px; }
+
+  /* --- Windows 11-style taskbar ---------------------------------------------------------- */
+  .taskbar {
+    position: absolute; left: 0; right: 0; bottom: 0; height: 48px;
+    background: rgba(28, 30, 38, 0.82); backdrop-filter: blur(30px);
+    border-top: 1px solid rgba(255, 255, 255, 0.06);
+    display: flex; align-items: center; justify-content: center; gap: 6px;
+  }
+  .taskbar i { width: 40px; height: 40px; border-radius: 6px; display: grid; place-items: center; }
+  .taskbar i b { width: 22px; height: 22px; border-radius: 5px; display: block; }
+  .taskbar i.on { background: rgba(255, 255, 255, 0.07); }
+  .clock { position: absolute; right: 18px; font-size: 12px; text-align: right; line-height: 1.35; color: #d8d9de; }
+
+  /* --- Perch's real windows -------------------------------------------------------------- */
+  .perch { position: absolute; border: 0; background: transparent; transform: scale(1.25); transform-origin: 0 0; }
+  .glass { backdrop-filter: blur(28px) saturate(1.25); -webkit-backdrop-filter: blur(28px) saturate(1.25); }
+  .card { border-radius: 14px; box-shadow: 0 28px 70px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(0, 0, 0, 0.4); }
+  .panelw { border-radius: 18px; box-shadow: 0 30px 80px rgba(0, 0, 0, 0.65); }
+  .edge-line { position: absolute; top: 0; left: 885px; width: 150px; height: 6px; background: #000; border: 1px solid rgba(255, 255, 255, 0.22); border-top: none; border-radius: 0 0 6px 6px; }
+  .cursor { position: absolute; width: 20px; height: 28px; }
+</style>
+</head>
+<body>
+<div id="scene"></div>
+
+<script>
+  const shot = Number(new URLSearchParams(location.search).get("shot") ?? 1);
+
+  const table = `
+    <table>
+      <tr><th>Idea</th><th>Effort</th><th>Impact</th></tr>
+      <tr><td>Cache the hot endpoints</td><td>Low</td><td>High</td></tr>
+      <tr><td>Batch database queries</td><td>Medium</td><td>High</td></tr>
+      <tr><td>Move internal calls to gRPC</td><td>High</td><td>Medium</td></tr>
+      <tr><td>Serve static assets from a CDN</td><td>Low</td><td>Medium</td></tr>
+      <tr><td>Rewrite the API in Rust</td><td>Very high</td><td>Unclear</td></tr>
+    </table>`;
+
+  // The chat has moved on and the table is scrolling out of view: the problem Perch solves.
+  const chatScrolled = `
+    <div class="msg ai fade-top">
+      <p>Here are five ways to speed up the API, from quick wins to big bets:</p>
+      ${table}
+      <p>I'd start with caching and batching. They're cheap and cover most of the slow requests.</p>
+    </div>
+    <div class="msg user">Makes sense. Can you also look at why the deploy script is so slow?</div>
+    <div class="msg ai">
+      <p>Sure. The slowest step is the full Docker rebuild on every run. Caching the dependency layer
+      should cut it from about 9 minutes to under 2. Here's the change to the Dockerfile:</p>
+      <pre class="code">FROM node:22-slim AS deps
+WORKDIR /app
+COPY package.json package-lock.json ./
+RUN --mount=type=cache,target=/root/.npm npm ci
+
+FROM node:22-slim
+WORKDIR /app
+COPY --from=deps /app/node_modules ./node_modules
+COPY . .
+CMD ["node", "server.js"]</pre>
+      <p>Only the last two layers rebuild when your code changes, so most deploys skip the install.</p>
+    </div>
+    <div class="msg user">Nice, and what about the test suite?</div>
+    <div class="typing">Thinking…</div>`;
+
+  const chat = (x, y, w, h, body) => `
+    <div class="chat" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px">
+      <div class="titlebar"><span class="dot"></span>AI Chat<span class="ctl"><span>—</span><span>▢</span><span>✕</span></span></div>
+      <div class="messages">${body}</div>
+      <div class="composer">Message AI Chat…<span class="send"></span></div>
+    </div>`;
+
+  const frame = (view, x, y, w, h, cls) =>
+    `<iframe class="perch glass ${cls}" src="frame.html?view=${view}${view === "card" || view === "compact" ? "&item=1" : ""}" style="left:${x}px;top:${y}px;width:${w}px;height:${h}px"></iframe>`;
+
+  const cursor = (x, y) => `
+    <svg class="cursor" style="left:${x}px;top:${y}px" viewBox="0 0 20 28">
+      <path d="M2 2 L2 22 L7 17 L10.5 25 L14 23.5 L10.5 15.8 L17 15.8 Z" fill="#fff" stroke="#000" stroke-width="1.4" stroke-linejoin="round"/>
+    </svg>`;
+
+  const icons = ["#3b82f6", "#f5f5f5", "#22c55e", "#f59e0b", "#a855f7", "#ef4444"];
+  const taskbar = `
+    <div class="taskbar">
+      ${icons.map((c, i) => `<i class="${i === 1 ? "on" : ""}"><b style="background:${c};opacity:${i === 1 ? 0.95 : 0.8}"></b></i>`).join("")}
+      <div class="clock">10:42<br>17-10-2026</div>
+    </div>`;
+
+  const scenes = {
+    // 1. A card beside the chat, mid-review.
+    1: chat(90, 70, 940, 900, chatScrolled) + `<div class="edge-line"></div>` + frame("card", 1075, 200, 640, 352, "card"),
+    // 2. The island open at the top with Pip.
+    2: chat(260, 170, 1400, 800, chatScrolled) + frame("island", 772, 0, 300, 112, "") + cursor(1095, 30),
+    // 3. The panel listing saved responses.
+    3: chat(90, 70, 1000, 900, chatScrolled) + frame("panel", 1150, 0, 400, 500, "panelw"),
+    // 4. Compact mode: one row at a time, tucked beside the chat.
+    4: chat(90, 70, 1150, 900, chatScrolled) + `<div class="edge-line"></div>` + frame("compact", 1285, 660, 460, 210, "card"),
+  };
+
+  document.getElementById("scene").innerHTML = (scenes[shot] ?? scenes[1]) + taskbar;
+</script>
+</body>
+</html>
