@@ -1,0 +1,59 @@
+# Builds the Microsoft Store package (MSIX). Runs after each successful Release build, or from
+# the Actions tab. With the Store identity set as repository variables (MSIX_IDENTITY_NAME,
+# MSIX_PUBLISHER, MSIX_PUBLISHER_DISPLAY_NAME) the .msix is attached to the release; without them
+# it builds with a placeholder identity and is only kept as a workflow artifact.
+name: MSIX
+
+on:
+  workflow_dispatch:
+  workflow_run:
+    workflows: [Release]
+    types: [completed]
+
+permissions:
+  contents: write
+
+jobs:
+  msix:
+    if: github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success'
+    runs-on: windows-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: "./src-tauri -> target"
+
+      - run: npm ci
+
+      - run: npx tauri build --no-bundle
+
+      - name: Package MSIX
+        shell: pwsh
+        env:
+          MSIX_IDENTITY_NAME: ${{ vars.MSIX_IDENTITY_NAME }}
+          MSIX_PUBLISHER: ${{ vars.MSIX_PUBLISHER }}
+          MSIX_PUBLISHER_DISPLAY_NAME: ${{ vars.MSIX_PUBLISHER_DISPLAY_NAME }}
+        run: ./packaging/msix/package.ps1
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: perch-msix
+          path: target-msix/*.msix
+
+      - name: Attach to the release
+        if: vars.MSIX_IDENTITY_NAME != ''
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          $version = (Get-Content src-tauri/tauri.conf.json -Raw | ConvertFrom-Json).version
+          gh release upload "v$version" (Get-Item target-msix/*.msix).FullName --clobber
