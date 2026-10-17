@@ -87,3 +87,11 @@ The `src-tauri/target` folder grows to a few GB while developing. Run `cargo cle
 - `src/Bird.tsx`: Pip.
 
 Saved items are stored on your computer only, in `items.json` in the app's data folder (on macOS, `~/Library/Application Support/com.mcaupybugs.perch/`).
+
+## Contributing
+
+Issues and pull requests are welcome. If you find a table Perch doesn't read properly, open an issue with a sample of the copied text.
+
+## License
+
+[MIT](LICENSE) © 2026 mcaupybugs
